@@ -304,16 +304,6 @@ def is_counterpart(outfile: str, decompile: bool) -> bool:
     ext_is_xmlb = len(ext) == 5 and ext[-1].lower() == 'b'
     return not ext_is_xmlb if decompile else ext_is_xmlb
 
-def parse(input_file: Path, output_file: Path, args):
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    if args.decompile:
-        decompile(input_file, output_file, not args.no_indent)
-    elif args.convert:
-        convert(input_file, output_file, not args.no_indent)
-    else:
-        compile(input_file, output_file)
-
 def decompile(xmlb_path: Path, output_path: Path, has_indent: bool):
     root_element = read_xmlb(xmlb_path)
     to_xml_json(root_element, output_path, has_indent)
@@ -345,17 +335,24 @@ def main():
         for input_file in input_files:
             input_file = Path(input_file)
             output_file = Path(args.output[0].replace('*', input_file.stem))
-            parse(input_file, output_file, args)
     else:
-        for input_file in [args.input] + args.output:
-            input_path = Path(input_file)
-            if is_counterpart(input_file, True):
-                ext = Path(input_path.stem).suffix
-                output_file = Path(input_path.stem) if ext else Path(input_path.stem + args.xmlb_format)
+        for file in [args.input] + args.output:
+            input_file = Path(file)
+            if is_counterpart(file, True):
+                ext = Path(input_file.stem).suffix
+                output_file = input_file.with_suffix('') if ext else input_file.with_suffix(args.xmlb_format)
             else:
-                output_file = Path(input_file + args.xml_format)
+                output_file = Path(file + args.xml_format)
                 args.decompile = True
-            parse(input_path, output_file, args)
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.decompile:
+        decompile(input_file, output_file, not args.no_indent)
+    elif args.convert:
+        convert(input_file, output_file, not args.no_indent)
+    else:
+        compile(input_file, output_file)
 
 if __name__ == '__main__':
     main()
