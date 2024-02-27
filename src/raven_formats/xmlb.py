@@ -1,4 +1,6 @@
-import json, glob
+import json, glob, subprocess, os, sys
+from watchdog.observers.polling import PollingObserver as Observer
+from watchdog.events import FileSystemEventHandler
 from pathlib import Path
 from argparse import ArgumentParser
 from struct import pack, unpack, calcsize
@@ -299,20 +301,10 @@ def from_any_element(input_path: Path) -> ET.Element:
 
         return from_json_element(json_data[0])
 
-def is_counterpart(outfile: str, decompile: bool) -> bool:
-    ext = Path(outfile).suffix
-    ext_is_xmlb = len(ext) == 5 and ext[-1].lower() == 'b'
-    return not ext_is_xmlb if decompile else ext_is_xmlb
-
-def parse(input_file: Path, output_file: Path, args):
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    if args.decompile:
-        decompile(input_file, output_file, not args.no_indent)
-    elif args.convert:
-        convert(input_file, output_file, not args.no_indent)
-    else:
-        compile(input_file, output_file)
+class ModifiedEvent(FileSystemEventHandler):
+    def on_modified(self, event):
+        compile(Path(event.src_path), globalCurrentFile)
+        print('Saved ', globalCurrentFile)
 
 def decompile(xmlb_path: Path, output_path: Path, has_indent: bool):
     root_element = read_xmlb(xmlb_path)
@@ -322,40 +314,45 @@ def compile(input_path: Path, output_path: Path):
     element = from_any_element(input_path)
     write_xmlb(element, output_path)
 
-def convert(input_path: Path, output_path: Path, has_indent: bool):
-    element = from_any_element(input_path)
-    to_xml_json(element, output_path, has_indent)
-
 def main():
     parser = ArgumentParser()
-    parser.add_argument('-c', '--convert', action='store_true', help='convert decompiled input file to XML/JSON file')
-    parser.add_argument('-d', '--decompile', action='store_true', help='decompile input XMLB file to XML/JSON file')
     parser.add_argument('--no_indent', action='store_true', help='disable indent in decompiled XML/JSON file')
-    parser.add_argument('-b', '--xmlb_format', type=str, default='.xmlb', help='Binary/compiled extension - output file takes priority')
-    parser.add_argument('-e', '--xml_format', type=str, default='.xml', help='Text/decompiled extension - output file takes priority')
-    parser.add_argument('input', help='input file (supports glob)')
-    parser.add_argument('output', help='output file (wildcards will be replaced by input file name)', nargs='*')
+    parser.add_argument('input', help='input file (supports glob)', nargs='*')
     args = parser.parse_args()
-    input_files = glob.glob(glob.escape(args.input), recursive=True)
 
-    if not input_files:
-        raise ValueError('No files found')
-
-    if len(args.output) == 1 and is_counterpart(args.output[0], args.decompile):
-        for input_file in input_files:
-            input_file = Path(input_file)
-            output_file = Path(args.output[0].replace('*', input_file.stem))
-            parse(input_file, output_file, args)
+    # it's crazy to use these two huge packages, just to get the exe path
+    # dir in temp: sys._MEIPASS
+    configFile = Path(os.path.dirname(sys.executable)) / 'config.json'
+    if configFile.exists():
+        with open(configFile) as f:
+            config = json.load(f)
     else:
-        for input_file in [args.input] + args.output:
-            input_path = Path(input_file)
-            if is_counterpart(input_file, True):
-                ext = Path(input_path.stem).suffix
-                output_file = Path(input_path.stem) if ext else Path(input_path.stem + args.xmlb_format)
-            else:
-                output_file = Path(input_file + args.xml_format)
-                args.decompile = True
-            parse(input_path, output_file, args)
+        config = {
+          "app": "Notepad",
+          "decompileFormat": "xml"
+        }
+    ext = '.' + config['decompileFormat']
+
+    # Initialize the handler for observing file modified events
+    event_handler = ModifiedEvent()
+    observer = Observer()
+
+    for i in args.input:
+        input_files = glob.glob(glob.escape(i), recursive=True)
+        for input_file in input_files:
+            global globalCurrentFile
+            globalCurrentFile = Path(input_file)
+            output_file = globalCurrentFile.with_suffix(ext)
+            
+            decompile(globalCurrentFile, output_file, not args.no_indent)
+
+            # define the file to observe and open the file
+            observer.schedule(event_handler, output_file, recursive=True)
+            observer.start()
+            ec = subprocess.call([config['app'], output_file])
+            observer.stop()
+
+            output_file.unlink(missing_ok=True)
 
 if __name__ == '__main__':
     main()
