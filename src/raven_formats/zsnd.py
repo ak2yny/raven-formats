@@ -1,7 +1,8 @@
 from collections import namedtuple
 from struct import pack, unpack, calcsize
-import json, wave, glob, math
+import json, wave, glob, math, re
 from operator import itemgetter
+from os import path as os_path
 from pathlib import Path
 from importlib.resources import open_text
 from argparse import ArgumentParser
@@ -76,6 +77,94 @@ zsnd_size_big_fmt = '> I'
 vag_header_fmt = '> 4s I 4x 2I 12x 16s'
 vag_header_size = calcsize(vag_header_fmt)
 
+sound_events_m = [
+    'DEATH',
+    'FLYBEGIN',
+    'FLYEND',
+    'JUMP',
+    'LAND',
+    'PAIN',
+    'PICKUP',
+    'PUNCHED',
+    'STRUGGLE',
+    'THROW',
+    # Rare:
+    'LIFT',
+    'LIFT_SHORT',
+    'XTREME_LAUNCH',
+    # Used in mods:
+    'EXPLODE',
+    'DRAW_GUN',
+    'HOLSTER_GUN',
+    'MUSIC',
+    'STEP',
+    'TELEPORT',
+    'WEB_ZIP'
+]
+
+sound_events_m_powers = [
+    'CHARGE',
+    'POWER',
+    'IMPACT',
+    'CHARGE_LOOP',
+    'LOOP'
+]
+
+sound_events_v = [
+    'BORED',
+    'CANTGO',
+    'CMDATTACKANY',
+    'CMDATTACKTARGET',
+    'CMDFOLLOW',
+    'EPITAPH',
+    'LEVELUP',
+    'LOWHEALTH',
+    'NOPOWER',
+    'NOWORK',
+    'RESPAFFIRM',
+    'STATS',
+    'TAUNTKD',
+    'THROWTAUNT',
+    'TOOHEAVY',
+    'VICTORY',
+    'XTREME',
+    # Enemies only:
+    'ISEEYOU',
+    'TAUNT',
+    'YELL',
+    # XML games:
+    'BANTER_BISHOP',
+    'BANTER_COLOSSUS',
+    'BANTER_CYCLOPS',
+    'BANTER_GAMBIT',
+    'BANTER_ICEMAN',
+    'BANTER_IRONMAN',
+    'BANTER_JUGGERNAUT',
+    'BANTER_MAGNETO',
+    'BANTER_NIGHTCRAWLER',
+    'BANTER_PHOENIX',
+    'BANTER_ROGUE',
+    'BANTER_SCARLETWITCH',
+    'BANTER_STORM',
+    'BANTER_SUNFIRE',
+    'BANTER_TOAD',
+    'BANTER_WOLVERINE',
+    'BANTER_BLADE',
+    'BANTER_CAP',
+    'BANTER_DD',
+    'BANTER_DEADPOOL',
+    'BANTER_ELEKTRA',
+    'BANTER_GHOSTRIDER',
+    'BANTER_PANTHER',
+    'BANTER_STRANGE',
+    'BANTER_TORCH',
+    'CANTTALK',
+    'LAUGH',
+    'LOCKED',
+    'SIGHT',
+    'XTREME2'
+]
+
 def is_big_endian(platform: str) -> bool:
     return platform == 'GCUB' or platform == 'PS3' or platform == 'XENO'
 
@@ -143,7 +232,26 @@ def hash2str(sound_hash: int):
         with open_text('raven_formats.data', 'zsnd_hashes.json') as hashes_file:
             hash_strings = json.load(hashes_file)
     return hash_strings[key] if (key in hash_strings) else sound_hash
-    
+
+def hash2str_char(zsnd_name: str, file_events: list, a: str, b: str, sound_hash: int):
+    events = file_events + globals()[f'sound_events_{a}'] + globals()[f'sound_events_{b}']
+
+    for e in events:
+        hash_string = hash2str_random(f'CHAR/{zsnd_name}/{e}'.upper(), sound_hash)
+        if (hash_string != sound_hash):
+            return hash_string
+
+    return sound_hash
+
+def hash2str_random(key: str, sound_hash: int):
+    if (pjw_hash(key) == sound_hash):
+        return key
+    for i in range(20):
+        hash_random = f'{key}/***RANDOM***/{i}'
+        if (pjw_hash(hash_random) == sound_hash):
+            return hash_random
+    return sound_hash
+
 def pjw_hash(key: str) -> int:
     hash = 0
     test = 0
@@ -171,12 +279,21 @@ def get_channels(sample_flags: int) -> int:
         channels = 4 if (sample_flags & 32 != 0) else 2
     return channels
 
+def hash_to_json(txt_path: Path) -> dict:
+    with txt_path.open(mode='r', encoding='utf-8') as txt_file:
+        data = {}
+        for line in txt_file:
+            hash_string = line.strip('\n').upper()
+            data[str(pjw_hash(hash_string))] = hash_string
+        return data
+
 def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
     with zsnd_path.open(mode='rb') as zsnd_file:
         if (zsnd_file.read(4) != b'ZSND'):
             raise ValueError('Invalid magic number')
 
         platform = zsnd_file.read(4).decode('utf-8').rstrip()
+        pf_incl_filename = ['PC', 'XBOX', 'XENO']
 
         if platform != 'PC' and platform != 'PS2' and platform != 'XBOX' and platform != 'GCUB' and platform != 'PS3' and platform != 'XENO':
             raise ValueError(f'Platform {platform} is not supported')
@@ -195,23 +312,6 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
         data['sounds'] = sounds
         data['samples'] = samples
 
-        zsnd_file.seek(header.sound_hashes_offset)
-
-        for i in range(header.sound_count):
-            sound_hashes.append(unpack(get_hash_format(platform), zsnd_file.read(hash_size)))
-
-        sound_hashes.sort(key=itemgetter(1))
-        zsnd_file.seek(header.sounds_offset)
-
-        for hash_value, index in sound_hashes:
-            sound = unpack(get_sound_format(platform), zsnd_file.read(sound_size))
-
-            sounds.append({
-                'hash': hash2str(hash_value),
-                'sample_index': sound[0],
-                'flags': sound[3]
-            })
-
         for sample_index in range(header.sample_count):
             sample_size = get_sample_size(platform)
             zsnd_file.seek(header.samples_offset + sample_index * sample_size)
@@ -221,7 +321,7 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
             zsnd_file.seek(header.sample_files_offset + sample[0] * sample_file_size)
             sample_file = unpack(get_sample_file_format(platform), zsnd_file.read(sample_file_size))
 
-            if (platform == 'PC' or platform == 'XBOX' or platform == 'XENO'):
+            if (platform in pf_incl_filename):
                 sample_file_name = sample_file[3].decode('utf-8').rstrip('\u0000')
             else:
                 suffix = '.dsp' if (platform == 'GCUB') else '.vag'
@@ -241,7 +341,7 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
 
             sample_data = {
                 'file': str(sample_file_path),
-                'format': sample_file[2] if (platform == 'PC' or platform == 'XBOX' or platform == 'XENO') else -1,
+                'format': sample_file[2] if (platform in pf_incl_filename) else -1,
                 'sample_rate': pitch2rate(sample[1]) if (is_psx) else sample[2],
                 'flags': sample[2] if (is_psx) else sample[1]
             }
@@ -277,6 +377,67 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
                             wav_file.writeframes(sample_file_data)
                 else:
                     sample_file.write(sample_file_data)
+
+        zsnd_file.seek(header.sound_hashes_offset)
+
+        for i in range(header.sound_count):
+            sound_hashes.append(unpack(get_hash_format(platform), zsnd_file.read(hash_size)))
+
+        sound_hashes.sort(key=itemgetter(1))
+        zsnd_file.seek(header.sounds_offset)
+
+        zsnd_name = zsnd_path.stem.lower()
+        zsfx = zsnd_name[-1]
+        zsfx_alt = 'v' if (zsfx == 'm') else 'm'
+        for pe in sound_events_m_powers:
+            for x in range(1, 13):
+                sound_events_m.append(f'P{x}_{pe}')
+
+        for hash_value, index in sound_hashes:
+            sound = unpack(get_sound_format(platform), zsnd_file.read(sound_size))
+
+            hash_string = hash2str(hash_value)
+            # if the hash isn't listed, we try to reverse generate it
+            if (hash_string == hash_value):
+                fes = []
+                if (platform in pf_incl_filename):
+                    filename, ext = os_path.splitext(os_path.basename(samples[sound[0]]['file']))
+                    if filename[:7].lower() == 'xtreme2':
+                        fe = 'xtreme2'
+                    else:
+                        fe = re.sub(r'\d*_ALT$','',re.sub(r'(\d*_?\d*|\d*_\w\d?)$','',filename),flags=re.IGNORECASE)
+                    fes = [fe, filename]
+
+                hash_string = hash2str_char(f'{zsnd_name[:-1]}{zsfx}', fes, zsfx, zsfx_alt, hash_value)
+                # if the hash couldn't be reverse generated using the zsnd filename, we try the alt suffix
+                if (hash_string == hash_value):
+                    hash_string = hash2str_char(f'{zsnd_name[:-1]}{zsfx_alt}', fes, zsfx_alt, zsfx, hash_value)
+
+            # if still no hash generated, try music
+            if (hash_string == hash_value):
+                for x in ['A', 'C', 'X']:
+                    mh = f'MUSIC/{zsnd_name[:-1].upper()}{x}'
+                    if (pjw_hash(mh) == hash_value):
+                        hash_string = mh
+                        break
+
+            # if still no hash generated, try x_voice hashes
+            if (hash_string == hash_value):
+                for x in ['MENUS/CHARACTER/', 'MENUS/CHARACTER/AN_', 'MENUS/CHARACTER/BREAK_', 'TEAM_BONUS_', '']:
+                    try:
+                        xh = hash2str_random(f'COMMON/{x}{filename.upper()}', hash_value)
+                        if (xh != hash_value):
+                            hash_string = xh
+                            break
+                    except:
+                        break
+
+            sounds.append({
+                'hash': hash_string,
+                'sample_index': sound[0],
+                'flags': sound[3]
+            })
+
         return data
 
 def write_zsnd(data: dict, output_path: Path):
@@ -410,9 +571,14 @@ def compile(json_path: Path, output_path: Path):
     with json_path.open(mode='r', encoding='utf-8') as json_file:
         write_zsnd(json.load(json_file), output_path)
 
+def genhash(txt_path: Path, output_path: Path):
+    with output_path.open(mode='w', encoding='utf-8') as json_file:
+        json.dump(hash_to_json(txt_path), json_file, indent=4)
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument('-d', '--decompile', action='store_true', help='decompile input ZSND file to JSON file')
+    parser.add_argument('-d', '--decompile', action='store_true', help='decompile input ZSND file to JSON file and extract sound files')
+    parser.add_argument('-g', '--generatehash', action='store_true', help='generate a PJW hash number from strings on separate lines in a text file')
     parser.add_argument('input', help='input file (supports glob)')
     parser.add_argument('output', help='output file (wildcards will be replaced by input file name)')
     args = parser.parse_args()
@@ -428,7 +594,10 @@ def main():
 
         if args.decompile:
             decompile(input_file, output_file)
+        elif args.generatehash:
+            genhash(input_file, output_file)
         else:
+            #compile to ZSND file using JSON input file
             compile(input_file, output_file)
 
 if __name__ == '__main__':

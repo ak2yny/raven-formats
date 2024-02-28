@@ -147,7 +147,6 @@ def to_xml_json(root_element: ET.Element, output_path: Path, has_indent: bool):
             for l in FakeXML:
                 file.write(l)
                 file.write('\n')
-        #raise ValueError(f'Output file extension {output_path.suffix} is not supported. Supported: .xml, .json')
 
 string_offsets = {}
 next_string_offset = header_size
