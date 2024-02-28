@@ -303,8 +303,10 @@ def from_any_element(input_path: Path) -> ET.Element:
 
 class ModifiedEvent(FileSystemEventHandler):
     def on_modified(self, event):
-        compile(Path(event.src_path), globalCurrentFile)
-        print('Saved ', globalCurrentFile)
+        compile(Path(event.src_path), global_file)
+        print('Saved ', global_file)
+        global save_count
+        save_count += 1
 
 def decompile(xmlb_path: Path, output_path: Path, has_indent: bool):
     root_element = read_xmlb(xmlb_path)
@@ -329,30 +331,31 @@ def main():
     else:
         config = {
           "app": "Notepad",
-          "decompileFormat": "xml"
+          "decompileFormat": "txt"
         }
     ext = '.' + config['decompileFormat']
 
-    # Initialize the handler for observing file modified events
-    event_handler = ModifiedEvent()
-    observer = Observer()
+    global save_count
+    global global_file
 
     for i in args.input:
         input_files = glob.glob(glob.escape(i), recursive=True)
         for input_file in input_files:
-            global globalCurrentFile
-            globalCurrentFile = Path(input_file)
-            output_file = globalCurrentFile.with_suffix(ext)
+            global_file = Path(input_file)
+            output_file = global_file.with_suffix(ext)
             
-            decompile(globalCurrentFile, output_file, not args.no_indent)
+            decompile(global_file, output_file, not args.no_indent)
 
             # define the file to observe and open the file
+            save_count = 0
+            event_handler = ModifiedEvent()
+            observer = Observer()
             observer.schedule(event_handler, output_file, recursive=True)
             observer.start()
             ec = subprocess.call([config['app'], output_file])
             observer.stop()
 
-            output_file.unlink(missing_ok=True)
+            if save_count > 0: output_file.unlink(missing_ok=True)
 
 if __name__ == '__main__':
     main()
