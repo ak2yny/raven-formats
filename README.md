@@ -34,13 +34,14 @@ optional arguments:
 ```
 #### ZSND Compile/Decompile
 ```
-usage: zsnd.py [-h] [-d] input output
+usage: zsnd.py [-h] [-d] [-g] input output
 
 positional arguments:
-  input            input file (supports glob)
-  output           output file (wildcards will be replaced by input file name)
+  input               input file (supports glob)
+  output              output file (wildcards will be replaced by input file name)
 
-optional arguments:
-  -h, --help       show this help message and exit
-  -d, --decompile  decompile input ZSND file to JSON file
+options:
+  -h, --help          show this help message and exit
+  -d, --decompile     decompile input ZSND file to JSON file and extract sound files
+  -g, --generatehash  generate a PJW hash number from strings on separate lines in a text file
 ```
