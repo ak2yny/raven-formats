@@ -1,4 +1,5 @@
-import json, glob
+import glob
+from os.path import splitext
 from pathlib import Path
 from argparse import ArgumentParser
 from struct import Struct
@@ -23,15 +24,20 @@ Known_Formats = {
     'textures.igb': 'texture',
     'conversations.xmlb': 'xml',
     'data.xmlb': 'xml',
-    'weapons.xmlb': 'xml',
+    'aipatterns.xml': 'aipatterns',
     'entities.xmlb': 'xml',
-    'talents.xmlb': 'xml_talents',
-    'powerstyles.xmlb': 'fightstyle',
     'fightstyles.xmlb': 'fightstyle',
+    'powerstyles.xmlb': 'fightstyle',
+    'talents.xmlb': 'xml_talents',
+    'weapons.xmlb': 'xml',
     'shared_nodes.xmlb': 'fightstyle_xml',
     'effects.xmlb': 'effect',
     'maps.xmlb': 'zonexml',
     'motionpaths.igb': 'motionpath',
+    'common_ents.xmlb': 'common_ents',
+    'item_ents.xmlb': 'item_ents',
+    'shared_nodes.xmlb': 'shared_nodes',
+    'shared_nodes_combat.xmlb': 'shared_nodes_combat',
     'shared_powerups.xmlb': 'shared_powerups',
     '.xmlb': 'xml_resident',
     '.igb': 'model',
@@ -50,6 +56,12 @@ Known_Formats = {
     '.sdf': 'sdf'
 }
 
+Dir_In_Type = {
+    'actorskin': 'actors',
+    'actoranimdb': 'actors',
+    'effect': 'effects'
+}
+
 def decompile(fb_path: Path, output_path: Path):
     fb_data = fb_path.read_bytes()
 
@@ -62,9 +74,17 @@ def decompile(fb_path: Path, output_path: Path):
             file_type = file_type.decode().split('\x00', 1)[0]
             file_data = fb_file.read(file_size)
 
-            child = ET.SubElement(entries, file_type)
-            #inner text: child.text = str(file_path)
-            child.set('filename', file_path) #attribute
+            file_info, ext = splitext(file_path)
+            for d in list(Dir_In_Type.values()):
+                Dir = d + '/'
+                if file_info.lower().startswith(Dir):
+                    file_info = file_info[len(Dir):]
+                    break
+            if not any(e.attrib['filename'].lower() == file_info.lower() for e in entries.findall("./*")):
+                child = ET.SubElement(entries, file_type)
+                #inner text: child.text = str(file_info)
+                child.set('filename', file_info) #attribute
+
             file_path = output_path.parent / output_path.stem / file_path
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_bytes(file_data)
@@ -78,13 +98,37 @@ def compile(xml_path: Path, output_path: Path):
     with BytesIO() as fb_data:
         for e in data.findall("./*"):
             file_path = e.attrib['filename']
-            file_type = e.tag
-            real_file_path = xml_path.parent / xml_path.stem / file_path
-            file_data = real_file_path.read_bytes()
-            fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data))
+            file_type = e.tag.lower()
+            if file_type in list(Dir_In_Type.keys()):
+                Dir = Dir_In_Type[file_type] + '/'
+                if not file_path.lower().startswith(Dir):
+                    file_path = Dir + file_path
+            file_info, ext = splitext(file_path)
+            ext = [ext]
+            if ext[0] == '':
+                try:
+                    ext = list(Known_Formats.keys())[list(Known_Formats.values()).index(file_type)]
+                    ext = [ext[ext.index('.'):]]
+                    if ext[0] in XML_Formats:
+                        ext = XML_Formats
+                except:
+                    print(f"WARNING: Unknown file type '{file_type}'. '{file_path}' not packed.")
+                    continue
 
-            fb_data.write(fb_file_header)
-            fb_data.write(file_data)
+            Any = False
+            for e in ext:
+                file_path = file_info + e
+                real_file_path = xml_path.parent / xml_path.stem / file_path
+                if real_file_path.exists():
+                    Any = True
+                    file_data = real_file_path.read_bytes()
+                    fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data))
+                    
+                    fb_data.write(fb_file_header)
+                    fb_data.write(file_data)
+
+            if not Any:
+                print(f"WARNING: File '{file_path}' not found and not packed.")
 
         output_path.write_bytes(fb_data.getbuffer())
 
@@ -103,11 +147,13 @@ def rebuild(xml_path: Path, output_path: Path):
         for p in input_folder.rglob("*.*"):
             file_type = ''
             file_path = str(p.relative_to(input_folder)).replace('\\', '/')
+            file_lowr = file_path.lower()
+            file_info = file_lowr.removesuffix(p.suffix)
             for e in data.findall("./*"):
-                if e.attrib['filename'] == file_path:
+                if e.attrib['filename'].lower() in (file_lowr, file_info):
                     file_type = e.tag
             if file_type == '':
-                folders = file_path.split('/')
+                folders = file_lowr.split('/')
                 sf = folders[1] if len(folders) > 1 else ''
                 dp = sf.rsplit('.', maxsplit=1)[0]
                 folder = sf if folders[0] == 'data' and '.' not in sf else 'anim' if folders[0] == 'actors' and not all(d in '0123456789' for d in p.stem) else dp if dp == 'shared_powerups' else dp[0:12] if dp[0:12] == 'shared_nodes' else folders[0]
@@ -125,7 +171,7 @@ def rebuild(xml_path: Path, output_path: Path):
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('-d', '--decompile', action='store_true', help='decompile input FB file to JSON file')
+    parser.add_argument('-d', '--decompile', action='store_true', help='decompile input FB file to XML package and extract all files')
     parser.add_argument('-r', '--rebuild', action='store_true', help='compile to FB file, including all files that exist in the corresponding directory')
     parser.add_argument('input', help='input file (supports glob)')
     parser.add_argument('output', help='output file (wildcards will be replaced by input file name)')
