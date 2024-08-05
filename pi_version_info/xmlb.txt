@@ -6,22 +6,22 @@ VSVersionInfo(
   ffi=FixedFileInfo(
     # filevers and prodvers should be always a tuple with four items: (1, 2, 3, 4)
     # Set not needed items to zero 0.
-    filevers=(1, 7, 0, 0),
-    prodvers=(1, 7, 0, 0),
+    filevers=(1, 9, 0, 0),
+    prodvers=(1, 9, 0, 0),
     ),
   kids=[
     StringFileInfo(
       [
       StringTable(
         '040904B0',
-        [StringStruct('FileVersion', '1.7'),
+        [StringStruct('FileVersion', '1.9'),
         StringStruct('CompanyName', 'nikita488'),
         StringStruct('FileDescription', 'Raven-Formats Xmlb'),
         StringStruct('OriginalFilename', 'xmlb.py'),
-        StringStruct('InternalName', 'ModOrganizer2'),
-        StringStruct('LegalCopyright', '2019-2021 Nikita Moroz (MIT)'),
+        StringStruct('InternalName', 'Xmlb'),
+        StringStruct('LegalCopyright', '2019-2024 Nikita Moroz (MIT)'),
         StringStruct('ProductName', 'xmlb'),
-        StringStruct('ProductVersion', '1.7')])
+        StringStruct('ProductVersion', '1.9')])
       ]), 
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]

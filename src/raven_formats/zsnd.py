@@ -4,7 +4,7 @@ import json, wave, glob, math, re
 from operator import itemgetter
 from os import path as os_path
 from pathlib import Path
-from importlib.resources import open_text
+from importlib.resources import files
 from argparse import ArgumentParser
 from . import adpcm
 
@@ -229,7 +229,7 @@ def hash2str(sound_hash: int):
     key = str(sound_hash)
 
     if not hash_strings:
-        with open_text('raven_formats.data', 'zsnd_hashes.json') as hashes_file:
+        with files('raven_formats.data').joinpath('zsnd_hashes.json').open() as hashes_file:
             hash_strings = json.load(hashes_file)
     return hash_strings[key] if (key in hash_strings) else sound_hash
 
