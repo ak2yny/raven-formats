@@ -387,7 +387,7 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
         zsnd_file.seek(header.sounds_offset)
 
         zsnd_name = zsnd_path.stem.lower()
-        zsfx = zsnd_name[-1]
+        zsfx = 'v' if (zsnd_name == 'x_voice') else 'm' if (zsnd_name == 'x_common') else zsnd_name[-1]
         zsfx_alt = 'v' if (zsfx == 'm') else 'm'
         for pe in sound_events_m_powers:
             for x in range(1, 13):

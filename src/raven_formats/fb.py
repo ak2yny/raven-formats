@@ -1,4 +1,5 @@
 import json, glob
+from os.path import splitext
 from pathlib import Path
 from argparse import ArgumentParser
 from struct import Struct
@@ -23,15 +24,20 @@ Known_Formats = {
     'textures.igb': 'texture',
     'conversations.xmlb': 'xml',
     'data.xmlb': 'xml',
-    'weapons.xmlb': 'xml',
+    'aipatterns.xml': 'aipatterns',
     'entities.xmlb': 'xml',
-    'talents.xmlb': 'xml_talents',
-    'powerstyles.xmlb': 'fightstyle',
     'fightstyles.xmlb': 'fightstyle',
+    'powerstyles.xmlb': 'fightstyle',
+    'talents.xmlb': 'xml_talents',
+    'weapons.xmlb': 'xml',
     'shared_nodes.xmlb': 'fightstyle_xml',
     'effects.xmlb': 'effect',
     'maps.xmlb': 'zonexml',
     'motionpaths.igb': 'motionpath',
+    'common_ents.xmlb': 'common_ents',
+    'item_ents.xmlb': 'item_ents',
+    'shared_nodes.xmlb': 'shared_nodes',
+    'shared_nodes_combat.xmlb': 'shared_nodes_combat',
     'shared_powerups.xmlb': 'shared_powerups',
     '.xmlb': 'xml_resident',
     '.igb': 'model',
@@ -102,8 +108,10 @@ def decompile(fb_path: Path, output_path: Path):
             file_type = file_type.decode().split('\x00', 1)[0]
             file_data = fb_file.read(file_size)
 
-            entries[check_exist(entries, file_path)] = file_type
+            file_info, ext = splitext(file_path)
+            if file_info.lower().startswith('actors/'): file_info = file_info[7:]
             file_path = output_path.parent / output_path.stem / file_path
+            entries[check_exist(entries, file_info)] = file_type
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_bytes(file_data)
 
@@ -125,12 +133,34 @@ def compile(input_path: Path, output_path: Path):
     with BytesIO() as fb_data:
         for file_path, file_type in d.items():
             file_path = file_path.rstrip('/')
-            real_file_path = input_path.parent / input_path.stem / file_path
-            file_data = real_file_path.read_bytes()
-            fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data))
+            if file_type.lower() in ('actorskin', 'actoranimdb') and not file_path.lower().startswith('actors/'):
+                file_path = 'actors/' + file_path
+            file_info, ext = splitext(file_path)
+            ext = [ext]
+            if ext[0] == '':
+                try:
+                    ext = list(Known_Formats.keys())[list(Known_Formats.values(file_type)).index)]
+                    ext = [ext[ext.index('.'):]]
+                    if ext[0] in XML_Formats:
+                        ext = XML_Formats
+                except:
+                    ext = []
+                    print(f"WARNING: Unknown file type '{file_type}'. '{file_path}' not packed.")
 
-            fb_data.write(fb_file_header)
-            fb_data.write(file_data)
+            Any = False
+            for e in ext:
+                file_path = file_info + e
+                real_file_path = input_path.parent / input_path.stem / file_path
+                if real_fil_path.exists():
+                    Any = True
+                    file_data = real_file_path.read_bytes()
+                    fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data))
+                    
+                    fb_data.write(fb_file_header)
+                    fb_data.write(file_data)
+
+            if not Any:
+                print(f"WARNING: File '{file_path}' not found. Not packed.")
 
         #Not forcing FB extension for now
         #output_path = output_path.parent / (output_path.stem + '.fb')
@@ -147,17 +177,21 @@ def rebuild(input_path: Path, output_path: Path):
 
     with BytesIO() as fb_data:
         for file_path, file_type in d.items():
-            if file_type in ('combat_is', 'bigconvmap'):
+            if file_type.lower() in ('combat_is', 'bigconvmap'):
                 file_path = file_path.rstrip('/')
                 fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), 0)
                 fb_data.write(fb_file_header)
 
         for p in input_folder.rglob("*.*"):
             file_path = str(p.relative_to(input_folder)).replace('\\', '/')
+            file_info = file_path.removesuffix(p.suffix)
+            #WARNING: These two are case sensitive!
             if file_path in d:
                 file_type = d[file_path]
+            elif file_info in d:
+                file_type = d[file_info]
             else:
-                folders = file_path.split('/')
+                folders = file_path.lower().split('/')
                 sf = folders[1] if len(folders) > 1 else ''
                 dp = sf.rsplit('.', maxsplit=1)[0]
                 folder = sf if folders[0] == 'data' and '.' not in sf else 'anim' if folders[0] == 'actors' and not all(d in '0123456789' for d in p.stem) else dp if dp == 'shared_powerups' else dp[0:12] if dp[0:12] == 'shared_nodes' else folders[0]
