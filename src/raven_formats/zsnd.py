@@ -392,6 +392,7 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
 
         zsnd_name = zsnd_path.stem.lower()
         zsfx = zsnd_name[-1]
+        if (zsfx != 'v' and zsfx != 'm'): zsfx = 'v'
         zsfx_alt = 'v' if (zsfx == 'm') else 'm'
         for pe in sound_events_m_powers:
             for x in range(1, 13):
@@ -589,7 +590,7 @@ def main():
     #parser_g = subparsers.add_parser('/g', help='generate a PJW hash number from a string')
     #parser_g.add_argument('hash_string', help='string to convert into a PJW hash number')
     args = parser.parse_args()
-    input_files = glob.glob(glob.escape(args.input), recursive=True)
+    input_files = glob.glob(args.input.replace('[', '[[]'), recursive=True)
 
     if not input_files:
         raise ValueError('No files found')
