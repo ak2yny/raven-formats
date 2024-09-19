@@ -241,9 +241,9 @@ def hash2str_char(zsnd_name: str, file_events: list, a: str, b: str, sound_hash:
     events = file_events + globals()[f'sound_events_{a}'] + globals()[f'sound_events_{b}']
 
     for e in events:
-        hash_string = hash2str_random(f'CHAR/{zsnd_name}/{e}'.upper(), sound_hash)
-        if (hash_string != sound_hash):
-            return hash_string
+        hash_str = hash2str_random(f'CHAR/{zsnd_name}/{e}'.upper(), sound_hash)
+        if (hash_str != sound_hash):
+            return hash_str
 
     return sound_hash
 
