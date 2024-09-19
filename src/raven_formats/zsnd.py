@@ -392,6 +392,7 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
 
         zsnd_name = zsnd_path.stem.lower()
         zsfx = 'v' if (zsnd_name == 'x_voice') else 'm' if (zsnd_name == 'x_common') else zsnd_name[-1]
+        if (zsfx != 'v' and zsfx != 'm'): zsfx = 'v'
         zsfx_alt = 'v' if (zsfx == 'm') else 'm'
         for pe in sound_events_m_powers:
             for x in range(1, 13):
@@ -586,7 +587,7 @@ def main():
     parser.add_argument('input', help='input file (supports glob)')
     parser.add_argument('output', help='output file (wildcards will be replaced by input file name)')
     args = parser.parse_args()
-    input_files = glob.glob(glob.escape(args.input), recursive=True)
+    input_files = glob.glob(args.input.replace('[', '[[]'), recursive=True)
 
     if not input_files:
         raise ValueError('No files found')
