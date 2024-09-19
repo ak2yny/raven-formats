@@ -158,10 +158,14 @@ sound_events_v = [
     'BANTER_PANTHER',
     'BANTER_STRANGE',
     'BANTER_TORCH',
+    'BOSSTAUNT',
     'CANTTALK',
+    'INCOMING',
     'LAUGH',
     'LOCKED',
     'SIGHT',
+    'SOLO_BEGIN',
+    'SOLO_END',
     'XTREME2'
 ]
 
