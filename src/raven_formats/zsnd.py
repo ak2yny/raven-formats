@@ -77,7 +77,15 @@ zsnd_size_big_fmt = '> I'
 vag_header_fmt = '> 4s I 4x 2I 12x 16s'
 vag_header_size = calcsize(vag_header_fmt)
 
-sound_events_m = [
+sound_events_m_powers = (
+    'CHARGE',
+    'POWER',
+    'IMPACT',
+    'CHARGE_LOOP',
+    'LOOP'
+)
+
+sound_events_m = (
     'DEATH',
     'FLYBEGIN',
     'FLYEND',
@@ -99,18 +107,11 @@ sound_events_m = [
     'MUSIC',
     'STEP',
     'TELEPORT',
-    'WEB_ZIP'
-]
+    'WEB_ZIP',
+    *(f'P{x}_{pe}' for x in range(1, 13) for pe in sound_events_m_powers)
+)
 
-sound_events_m_powers = [
-    'CHARGE',
-    'POWER',
-    'IMPACT',
-    'CHARGE_LOOP',
-    'LOOP'
-]
-
-sound_events_v = [
+sound_events_v = (
     'BORED',
     'CANTGO',
     'CMDATTACKANY',
@@ -167,7 +168,12 @@ sound_events_v = [
     'SOLO_BEGIN',
     'SOLO_END',
     'XTREME2'
-]
+)
+
+sound_randoms = tuple(('', *(
+    f'/***RANDOM***/{i}'
+        for i in range(20)
+)))
 
 def is_big_endian(platform: str) -> bool:
     return platform == 'GCUB' or platform == 'PS3' or platform == 'XENO'
@@ -237,21 +243,18 @@ def hash2str(sound_hash: int):
             hash_strings = json.load(hashes_file)
     return hash_strings[key] if (key in hash_strings) else sound_hash
 
-def hash2str_char(zsnd_name: str, file_events: list, a: str, b: str, sound_hash: int):
-    events = file_events + globals()[f'sound_events_{a}'] + globals()[f'sound_events_{b}']
-
-    for e in events:
-        hash_str = hash2str_random(f'CHAR/{zsnd_name}/{e}'.upper(), sound_hash)
-        if (hash_str != sound_hash):
-            return hash_str
+def hash2str_char(zsnd_name: str, events: tuple, sound_hash: int):
+    for c in ('CHAR', 'CHARACTER'):
+        for e in events:
+            hash_str = hash2str_random(f'{c}/{zsnd_name}/{e}', sound_hash)
+            if (hash_str != sound_hash):
+                return hash_str
 
     return sound_hash
 
 def hash2str_random(key: str, sound_hash: int):
-    if (pjw_hash(key) == sound_hash):
-        return key
-    for i in range(20):
-        hash_random = f'{key}/***RANDOM***/{i}'
+    for random in sound_randoms:
+        hash_random = key + random
         if (pjw_hash(hash_random) == sound_hash):
             return hash_random
     return sound_hash
@@ -390,51 +393,46 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
         sound_hashes.sort(key=itemgetter(1))
         zsnd_file.seek(header.sounds_offset)
 
-        zsnd_name = zsnd_path.stem.lower()
-        zsfx = 'v' if (zsnd_name == 'x_voice') else 'm' if (zsnd_name == 'x_common') else zsnd_name[-1]
-        if (zsfx != 'v' and zsfx != 'm'): zsfx = 'v'
-        zsfx_alt = 'v' if (zsfx == 'm') else 'm'
-        for pe in sound_events_m_powers:
-            for x in range(1, 13):
-                sound_events_m.append(f'P{x}_{pe}')
+        zsnd_name = zsnd_path.stem.upper()
+        zsfx = 'V' if zsnd_name == 'X_VOICE' else 'M' if zsnd_name == 'X_COMMON' else zsnd_name[-1]
+        if zsfx not in ('V', 'M'): zsfx = 'V'
+        zsfx_alt = 'V' if zsfx == 'M' else 'M'
+        events = sound_events_m + sound_events_v if zsfx == 'M' else sound_events_v + sound_events_m
 
         for hash_value, index in sound_hashes:
             sound = unpack(get_sound_format(platform), zsnd_file.read(sound_size))
 
             hash_string = hash2str(hash_value)
             # if the hash isn't listed, we try to reverse generate it
-            if (hash_string == hash_value):
-                fes = []
-                if (platform in pf_incl_filename):
-                    filename, ext = os_path.splitext(os_path.basename(samples[sound[0]]['file']))
-                    if filename[:7].lower() == 'xtreme2':
-                        fe = 'xtreme2'
-                    else:
-                        fe = re.sub(r'\d*_ALT$','',re.sub(r'(\d*_?\d*|\d*_\w\d?)$','',filename),flags=re.IGNORECASE)
-                    fes = [fe, filename]
+            if hash_string == hash_value:
+                if platform in pf_incl_filename:
+                    filename, _ = os_path.splitext(os_path.basename(samples[sound[0]]['file'].upper()))
+                    file_events = (
+                        'XTREME2' if filename[:7] == 'XTREME2' else \
+                        re.sub(r'\d*_ALT$', '', re.sub(r'(\d*_?\d*|\d*_\w\d?)$', '',filename)),
+                        filename, *events)
+                else:
+                    file_events = events
 
-                hash_string = hash2str_char(f'{zsnd_name[:-1]}{zsfx}', fes, zsfx, zsfx_alt, hash_value)
+                hash_string = hash2str_char(f'{zsnd_name[:-1]}{zsfx}', file_events, hash_value)
                 # if the hash couldn't be reverse generated using the zsnd filename, we try the alt suffix
-                if (hash_string == hash_value):
-                    hash_string = hash2str_char(f'{zsnd_name[:-1]}{zsfx_alt}', fes, zsfx_alt, zsfx, hash_value)
+                if hash_string == hash_value:
+                    hash_string = hash2str_char(f'{zsnd_name[:-1]}{zsfx_alt}', file_events, hash_value)
 
             # if still no hash generated, try music
-            if (hash_string == hash_value):
-                for x in ['A', 'C', 'X']:
-                    mh = f'MUSIC/{zsnd_name[:-1].upper()}{x}'
-                    if (pjw_hash(mh) == hash_value):
+            if hash_string == hash_value:
+                for x in ('A', 'C', 'X'):
+                    mh = f'MUSIC/{zsnd_name[:-1]}{x}'
+                    if pjw_hash(mh) == hash_value:
                         hash_string = mh
                         break
 
             # if still no hash generated, try x_voice hashes
-            if (hash_string == hash_value):
-                for x in ['MENUS/CHARACTER/', 'MENUS/CHARACTER/AN_', 'MENUS/CHARACTER/BREAK_', 'TEAM_BONUS_', '']:
-                    try:
-                        xh = hash2str_random(f'COMMON/{x}{filename.upper()}', hash_value)
-                        if (xh != hash_value):
-                            hash_string = xh
-                            break
-                    except:
+            if hash_string == hash_value:
+                for x in ('MENUS/CHARACTER/', 'MENUS/CHARACTER/AN_', 'MENUS/CHARACTER/BREAK_', 'TEAM_BONUS_', ''):
+                    xh = hash2str_random(f'COMMON/{x}{filename}', hash_value)
+                    if xh != hash_value:
+                        hash_string = xh
                         break
 
             sounds.append({
