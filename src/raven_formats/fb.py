@@ -12,11 +12,8 @@ FBFileHeader = Struct(
     'I' # file size
 )
 
-XML_F = ['xml', 'eng', 'fre', 'ger', 'ita', 'spa', 'rus', 'pol']
-XML_Formats = []
-for f in XML_F:
-    XML_Formats.append('.' + f)
-    XML_Formats.append('.' + f + 'b')
+XML_F = ('xml', 'eng', 'fre', 'ger', 'ita', 'spa', 'rus', 'pol')
+XML_Formats = tuple(x for f in XML_F for x in (f'.{f}', f'.{f}b'))
 
 Known_Formats = {
     'actors.igb': 'actorskin',
@@ -55,8 +52,10 @@ Known_Formats = {
     '.sdfb': 'sdf',
     '.sdf': 'sdf'
 }
+# Reversed dict in order and key/value. Order because the first identical value must be used as key.
+Known_Types = dict(zip(list(Known_Formats.values())[::-1], list(Known_Formats.keys())[::-1]))
 
-Dir_In_Type = {
+Formats_With_Dir = {
     'actorskin': 'actors',
     'actoranimdb': 'actors',
     'effect': 'effects'
@@ -70,20 +69,15 @@ def decompile(fb_path: Path, output_path: Path):
 
         while (file_header := fb_file.read(FBFileHeader.size)):
             file_path, file_type, file_size = FBFileHeader.unpack(file_header)
-            file_path = file_path.decode().split('\x00', 1)[0]
-            file_type = file_type.decode().split('\x00', 1)[0]
+            file_path = file_path.decode('utf-8').rstrip('\u0000')
+            file_type = file_type.decode('utf-8').rstrip('\u0000')
             file_data = fb_file.read(file_size)
 
-            file_info, ext = splitext(file_path)
-            for d in list(Dir_In_Type.values()):
-                Dir = d + '/'
-                if file_info.lower().startswith(Dir):
-                    file_info = file_info[len(Dir):]
-                    break
-            if not any(e.attrib['filename'].lower() == file_info.lower() for e in entries.findall("./*")):
+            file_info, _ = splitext(file_path.lower().removeprefix('actors').removeprefix('effects').lstrip('/'))
+            if not any(e.attrib['filename'] == file_info for e in entries.findall("./*")):
                 child = ET.SubElement(entries, file_type)
-                #inner text: child.text = str(file_info)
-                child.set('filename', file_info) #attribute
+                # inner text: child.text = str(file_info)
+                child.set('filename', file_info) # attribute
 
             file_path = output_path.parent / output_path.stem / file_path
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,79 +89,73 @@ def decompile(fb_path: Path, output_path: Path):
 def compile(xml_path: Path, output_path: Path):
     data = ET.parse(xml_path)
 
-    with BytesIO() as fb_data:
+    with output_path.open('wb') as fb_data:
         for e in data.findall("./*"):
             file_path = e.attrib['filename']
             file_type = e.tag.lower()
-            if file_type in list(Dir_In_Type.keys()):
-                Dir = Dir_In_Type[file_type] + '/'
+            if file_type in Formats_With_Dir:
+                Dir = f'{Formats_With_Dir[file_type]}/'
                 if not file_path.lower().startswith(Dir):
                     file_path = Dir + file_path
             file_info, ext = splitext(file_path)
-            ext = [ext]
-            if ext[0] == '':
-                try:
-                    ext = list(Known_Formats.keys())[list(Known_Formats.values()).index(file_type)]
-                    ext = [ext[ext.index('.'):]]
-                    if ext[0] in XML_Formats:
-                        ext = XML_Formats
-                except:
+            if ext == '':
+                if file_type in Known_Types:
+                    ext = f'.{Known_Types[file_type].rsplit('.', maxsplit=1)[1]}'
+                    ext = XML_Formats if ext in XML_Formats else (ext,)
+                else:
                     print(f"WARNING: Unknown file type '{file_type}'. '{file_path}' not packed.")
                     continue
+            else: ext = (ext,)
 
             Any = False
             for e in ext:
                 file_path = file_info + e
-                real_file_path = xml_path.parent / xml_path.stem / file_path
-                if real_file_path.exists():
+                full_file_path = xml_path.parent / xml_path.stem / file_path
+                if full_file_path.exists():
                     Any = True
-                    file_data = real_file_path.read_bytes()
-                    fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data))
-                    
-                    fb_data.write(fb_file_header)
+                    file_data = full_file_path.read_bytes()
+
+                    fb_data.write(FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data)))
                     fb_data.write(file_data)
 
             if not Any:
                 print(f"WARNING: File '{file_path}' not found and not packed.")
 
-        output_path.write_bytes(fb_data.getbuffer())
-
 def rebuild(xml_path: Path, output_path: Path):
     data = ET.parse(xml_path)
     input_folder = xml_path.parent / xml_path.stem
 
-    with BytesIO() as fb_data:
+    with output_path.open('wb') as fb_data:
         for file_type in ('combat_is', 'bigconvmap'):
-            e = data.find('./' + file_type)
-            if e is not None:
+            e = data.find(f'./{file_type}')
+            if e:
                 file_path = e.attrib['filename']
-                fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), 0)
-                fb_data.write(fb_file_header)
+                fb_data.write(FBFileHeader.pack(file_path.encode(), file_type.encode(), 0))
 
-        for p in input_folder.rglob("*.*"):
+        for f in input_folder.rglob("*.*"):
             file_type = ''
-            file_path = str(p.relative_to(input_folder)).replace('\\', '/')
-            file_lowr = file_path.lower()
-            file_info = file_lowr.removesuffix(p.suffix)
+            file_path = f.relative_to(input_folder).as_posix().lower()
+            file_info = file_path.removesuffix(f.suffix)
             for e in data.findall("./*"):
-                if e.attrib['filename'].lower() in (file_lowr, file_info):
+                if e.attrib['filename'].lower() in (file_path, file_info):
                     file_type = e.tag
             if file_type == '':
-                folders = file_lowr.split('/')
-                sf = folders[1] if len(folders) > 1 else ''
-                dp = sf.rsplit('.', maxsplit=1)[0]
-                folder = sf if folders[0] == 'data' and '.' not in sf else 'anim' if folders[0] == 'actors' and not all(d in '0123456789' for d in p.stem) else dp if dp == 'shared_powerups' else dp[0:12] if dp[0:12] == 'shared_nodes' else folders[0]
-                e = p.suffix.lower()
+                folders = file_path.split('/')
+                f2 = folders[1] if len(folders) > 1 else ''
+                dp = splitext(f2)[0]
+                folder = f2 if folders[0] == 'data' and '.' not in f2 else \
+                         'anim' if folders[0] == 'actors' and not all(d in '0123456789' for d in f.stem) else \
+                         dp if dp == 'shared_powerups' else \
+                         'shared_nodes' if dp[:12] == 'shared_nodes' else \
+                         folders[0]
+                e = f.suffix.lower()
                 if e in XML_Formats: e = '.xmlb'
                 type_string = folder + e
                 file_type = Known_Formats[type_string] if type_string in Known_Formats else Known_Formats[e] if e in Known_Formats else 'unknown'
-            file_data = p.read_bytes()
-            fb_file_header = FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data))
+            file_data = f.read_bytes()
 
-            fb_data.write(fb_file_header)
+            fb_data.write(FBFileHeader.pack(file_path.encode(), file_type.encode(), len(file_data)))
             fb_data.write(file_data)
-
-        output_path.write_bytes(fb_data.getbuffer())
 
 def main():
     parser = ArgumentParser()
