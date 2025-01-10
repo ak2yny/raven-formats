@@ -5,7 +5,7 @@ import json, wave, glob
 from operator import itemgetter
 from pathlib import Path
 from argparse import ArgumentParser
-import adpcm
+from . import adpcm
 
 @dataclass
 class Header:
