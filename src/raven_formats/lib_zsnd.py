@@ -84,6 +84,7 @@ class SampleFile:
         if platform in ('PC', 'XBOX', 'XENO'):
             self.name = self.name.decode('utf-8').rstrip('\u0000')
         else:
+            if platform == 'GCUB': self.format = -1 # and self.format == 'DSP '
             self.name = f'{sample_index}{".dsp" if platform == 'GCUB' else ".vag"}'
 
 @dataclass
@@ -346,7 +347,7 @@ def read_zsnd(zsnd_path: Path, output_path: Path) -> dict:
         for so in sounds:
             if isinstance(so['hash'], int): # if the hash wasn't listed, we try to reverse generate it
                 Hash = None
-                filename = sample_file_names[so['sample_index']]
+                filename = sample_file_names[so['sample_index']] if platform.value in ('PC', 'XBOX', 'XENO') else ''
                 if platform.value in ('PC', 'XBOX', 'XENO'):
                     clean_fn = 'XTREME2' if filename[:7] == 'XTREME2' else \
                         re.sub(r'\d*_ALT$', '', re.sub(r'(\d*_?\d*|\d*_\w\d?)$', '', filename))
